@@ -2,7 +2,6 @@ ac_models/finetuned_models
 
 dataset
 test_audios
-app
 running_tests.py
 
 # Python cache

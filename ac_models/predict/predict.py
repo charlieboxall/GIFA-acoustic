@@ -45,11 +45,6 @@ def main(checkpoint, audio_path):
         tokenizer = processor.tokenizer
         feature_extractor = processor.feature_extractor
 
-    print(f"Model type: {type(model)}")
-    print(f"Tokenizer type: {type(tokenizer)}")
-    print(f"Feature extractor type: {type(feature_extractor)}")
-    print(f"Processor type: {type(processor)}")
-
     # Set up device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)

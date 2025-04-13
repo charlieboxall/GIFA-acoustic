@@ -1,4 +1,4 @@
-from transformers import WhisperForConditionalGeneration, WhisperTokenizer, WhisperFeatureExtractor, WhisperProcessor, pipeline, AutoProcessor, AutoModelForSpeechSeq2Seq
+from transformers import WhisperForConditionalGeneration, WhisperTokenizer, WhisperFeatureExtractor, WhisperProcessor
 # model, tokenizer, feature_extractor, processor
 
 def load_ac_model(checkpoint, TRAINING=False):

@@ -12,5 +12,3 @@ To predict captions:
     OR
     python -m ac_models.predict.ftcanvers
 
-To run flask app:
-    python -m app.app
