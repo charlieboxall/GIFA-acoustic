@@ -2,8 +2,8 @@ from .finetune import *
 
 # python -m ac_models.finetune.whispertiny
 if __name__ == "__main__":
-    dataset_path = "dataset/dataset.csv"
-    save_path = "ac_models/finetuned_models/ftwhispertiny"
+    dataset_path = "dataset/improved_dataset.csv"
+    save_path = "ac_models/finetuned_models/ftwhispertiny-PLUS"
     checkpoint = "MU-NLPC/whisper-tiny-audio-captioning"
     batch_size = 4
     num_epochs = 5
