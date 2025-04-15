@@ -44,5 +44,10 @@ def load_ac_model(checkpoint, TRAINING=False):
             processor = WhisperProcessor.from_pretrained(checkpoint, language="en", task="transcribe")
             return model, None, None, processor
         
+        elif checkpoint == "ac_models/finetuned_models/ftcanvers-PLUS":
+            model = WhisperForConditionalGeneration.from_pretrained(checkpoint)
+            processor = WhisperProcessor.from_pretrained(checkpoint, language="en", task="transcribe")
+            return model, None, None, processor
+        
     except Exception as e:
         print(f"Error loading: \n{e}")
