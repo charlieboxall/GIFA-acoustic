@@ -1,13 +1,15 @@
-# ... (imports remain the same) ...
+# run.py
 import os
 import sys
 import uuid
 import traceback
 import time
-from flask import Flask, request, render_template, redirect, url_for, flash, send_from_directory
+import shutil
+from flask import Flask, request, render_template, redirect, url_for, flash, send_from_directory, jsonify # Added jsonify
 from werkzeug.utils import secure_filename
 from ac_models.predict import main as run_model_prediction
 
+import re # <--- Add this import
 # --- Image Generation Imports ---
 import torch
 from diffusers import Lumina2Pipeline
@@ -16,20 +18,25 @@ from PIL import Image
 app = Flask(__name__)
 
 # --- Configuration ---
+# ... (paths and settings remain the same) ...
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-HELPERS_DIR = os.path.join(BASE_DIR, "helpers") # Adjust if run.py is inside helpers
+HELPERS_DIR = os.path.join(BASE_DIR, "helpers")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "temp_audio_uploads_direct")
 SAVE_IMAGE_FOLDER_RELATIVE = os.path.join("helpers", "static", "generated_images")
 ABS_GENERATED_IMAGE_FOLDER = os.path.join(BASE_DIR, SAVE_IMAGE_FOLDER_RELATIVE)
 SERVE_IMAGE_DIR = ABS_GENERATED_IMAGE_FOLDER
+SERVE_AUDIO_FOLDER_RELATIVE = os.path.join("helpers", "static", "served_audio")
+ABS_SERVED_AUDIO_FOLDER = os.path.join(BASE_DIR, SERVE_AUDIO_FOLDER_RELATIVE)
+SERVE_AUDIO_DIR = ABS_SERVED_AUDIO_FOLDER
+
 ALLOWED_EXTENSIONS = {"mp3", "wav"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 
 # --- Global Model Loading ---
+# ... (get_lumina_pipeline remains the same) ...
 lumina_pipe = None
 def get_lumina_pipeline():
-    # ... (model loading code remains the same) ...
     global lumina_pipe
     if lumina_pipe is None:
         print("Loading Lumina-2 model...")
@@ -43,15 +50,24 @@ def get_lumina_pipeline():
         except Exception as e:
             print(f"ERROR loading Lumina-2 model: {e}")
             traceback.print_exc()
+            # Instead of raising, maybe return None and handle it later?
+            # For now, let it raise during startup if critical
             raise
     return lumina_pipe
 
+# --- In-memory storage for background job details ---
+# Warning: This is simple and not suitable for production (concurrency issues, memory leaks).
+# For production, use Redis, Celery, or a proper database.
+jobs = {}
 
 # Ensure necessary folders exist
+# ... (os.makedirs remains the same) ...
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(ABS_GENERATED_IMAGE_FOLDER, exist_ok=True)
+os.makedirs(ABS_SERVED_AUDIO_FOLDER, exist_ok=True)
 print(f"Ensured UPLOAD_FOLDER exists: {UPLOAD_FOLDER}")
 print(f"Ensured IMAGE_FOLDER exists: {ABS_GENERATED_IMAGE_FOLDER}")
+print(f"Ensured SERVED_AUDIO_FOLDER exists: {ABS_SERVED_AUDIO_FOLDER}")
 
 
 def allowed_file(filename):
@@ -59,16 +75,17 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- Updated generate_image function ---
+# --- generate_image function remains the same ---
 def generate_image(prompt, width, height, cfg_trunc_ratio, seed=0):
-    """Generates an image using Lumina-2 with fixed guidance and variable cfg_trunc_ratio."""
+    # ... (generate_image code is unchanged) ...
     print(f"Generating image with prompt: '{prompt}'")
-    # Note: guidance_scale is now fixed at 4.0
     print(f"Parameters: Width={width}, Height={height}, CFG Trunc Ratio={cfg_trunc_ratio:.2f}, Seed={seed}")
     try:
         pipe = get_lumina_pipeline()
         if pipe is None:
-            raise RuntimeError("Lumina pipeline could not be loaded.")
+             # Handle model load failure gracefully during generation attempt
+             print("ERROR: Lumina pipeline not available for image generation.")
+             return None # Return None if pipeline failed to load earlier
 
         generator = torch.Generator("cuda").manual_seed(seed)
 
@@ -77,9 +94,9 @@ def generate_image(prompt, width, height, cfg_trunc_ratio, seed=0):
                  prompt=prompt,
                  height=int(height),
                  width=int(width),
-                 guidance_scale=4.0, # *** Fixed guidance scale ***
+                 guidance_scale=4.0,
                  num_inference_steps=25,
-                 cfg_trunc_ratio=float(cfg_trunc_ratio), # *** Use slider value ***
+                 cfg_trunc_ratio=float(cfg_trunc_ratio),
                  cfg_normalization=True,
                  generator=generator
              ).images[0]
@@ -102,140 +119,249 @@ def generate_image(prompt, width, height, cfg_trunc_ratio, seed=0):
         print("--- End Image Generation Traceback ---")
         return None
 
-# --- Flask Routes ---
+
+# --- Main Route ---
 @app.route("/", methods=["GET", "POST"])
 def upload_and_predict():
+    form_data_repopulate = {}
+    style_tuning_selected = []
+    job_id = None # ID for the background processing job
+    served_audio_filename = None # Filename for immediate audio playback
+
     if request.method == "POST":
-        # --- 1. Validate Audio Input ---
-        # ... (audio validation remains the same) ...
+        form_data_repopulate = request.form
+        style_tuning_selected = request.form.getlist('style_tuning')
+
+        # --- 1. Validate Input ---
         if "file" not in request.files:
             flash("No file part provided.")
-            return redirect(request.url)
+            return render_template("upload.html", form_data=form_data_repopulate, style_tuning_selected=style_tuning_selected)
+        # ... (rest of the validation remains the same) ...
         file = request.files["file"]
         model_checkpoint = request.form.get("model_checkpoint")
-        if file.filename == "":
-            flash("No file selected.")
-            return redirect(request.url)
-        if not model_checkpoint:
-             flash("No audio captioning model checkpoint selected.")
-             return redirect(request.url)
-        if not allowed_file(file.filename):
-            flash(f"File type not allowed. Use: {', '.join(ALLOWED_EXTENSIONS)}")
-            return redirect(request.url)
+        if file.filename == "" or not model_checkpoint or not allowed_file(file.filename):
+             # Flash messages are set inside the checks now
+            if file.filename == "": flash("No file selected.")
+            if not model_checkpoint: flash("No audio captioning model checkpoint selected.")
+            if file.filename != "" and not allowed_file(file.filename): flash(f"File type not allowed. Use: {', '.join(ALLOWED_EXTENSIONS)}")
+            return render_template("upload.html", form_data=form_data_repopulate, style_tuning_selected=style_tuning_selected)
 
-
-        # --- Get Image Generation Parameters ---
-        style_tuning = request.form.getlist('style_tuning')
-        # *** Get the CFG Trunc Ratio slider value (0.1 - 1.0) ***
-        cfg_trunc_slider = request.form.get('cfg_trunc_slider', default=1.0, type=float)
-        width_slider = request.form.get('width_slider', default=512, type=int)
-        height_slider = request.form.get('height_slider', default=512, type=int)
-
-        # --- 2. Save Audio File Temporarily ---
-        # ... (audio saving remains the same) ...
+        # --- 2. Prepare for Processing ---
+        job_id = str(uuid.uuid4()) # Use a new UUID for the job ID
         _, ext = os.path.splitext(file.filename)
-        temp_filename = secure_filename(f"{uuid.uuid4()}{ext}")
+        # Use job_id in filename to easily link stored job data and files
+        temp_filename_base = secure_filename(f"job_{job_id}")
+        temp_filename = f"{temp_filename_base}{ext}"
         temp_filepath = os.path.join(UPLOAD_FOLDER, temp_filename)
-        absolute_audio_filepath = temp_filepath
 
-        caption = "Error during processing."
-        generated_image_filename = None
+        # Store parameters needed for the background job
+        job_params = {
+            "audio_path": temp_filepath, # Path to the temporary audio file
+            "model_checkpoint": model_checkpoint,
+            "style_tuning": style_tuning_selected,
+            "cfg_trunc_slider": request.form.get('cfg_trunc_slider', default=1.0, type=float),
+            "width_slider": request.form.get('width_slider', default=512, type=int),
+            "height_slider": request.form.get('height_slider', default=512, type=int),
+            "remove_figure": request.form.get('remove_figure') == 'on',
+            "status": "pending",
+            "timestamp": time.time()
+        }
 
         try:
+            # --- 3. Save & Copy Audio Immediately ---
             file.save(temp_filepath)
-            print(f"Temporary audio file saved to: {temp_filepath}")
+            print(f"Temporary audio file saved for job {job_id}: {temp_filepath}")
 
-            # --- 3. Run Audio Captioning ---
-            # ... (audio captioning call remains the same) ...
-            print(f"Running audio captioning with checkpoint: {model_checkpoint}")
-            print(f"Input audio path: {absolute_audio_filepath}")
-            caption_result = run_model_prediction(
-                checkpoint=model_checkpoint,
-                audio_path=absolute_audio_filepath
-            )
+            served_audio_filepath = os.path.join(ABS_SERVED_AUDIO_FOLDER, temp_filename) # Use same unique name
+            shutil.copy2(temp_filepath, served_audio_filepath)
+            served_audio_filename = temp_filename # Set filename for template
+            print(f"Copied audio for immediate playback for job {job_id}: {served_audio_filepath}")
 
-            if caption_result is None:
-                # ... (handling caption failure remains the same) ...
-                caption = "Audio captioning function did not return a result."
-                print(caption)
-                flash(caption)
-                return render_template("result.html", caption=caption, image_filename=None)
+            # --- 4. Store Job & Render Page ---
+            # Store job details before rendering
+            jobs[job_id] = job_params
+            print(f"Stored job {job_id} parameters.")
 
-            else:
-                caption = str(caption_result).strip()
-                print(f"Audio captioning successful. Caption: {caption}")
-
-                # --- 4. Construct Image Prompt ---
-                # ... (prompt construction remains the same) ...
-                prompt_prefix = [s for s in style_tuning if s in ["Abstract", "Cartoon", "Photorealistic", "Oil Painting", "Sketch", "Pixel Art", "Vintage", "Surrealism"]]
-                prompt_prefix.append("Album cover art inspired:")
-                final_image_prompt = " ".join(prompt_prefix) + " " + caption
-
-
-                # --- 5. Run Image Generation ---
-                # *** Pass cfg_trunc_slider to generate_image ***
-                generated_image_filename = generate_image(
-                    prompt=final_image_prompt,
-                    width=width_slider,
-                    height=height_slider,
-                    cfg_trunc_ratio=cfg_trunc_slider # Pass the slider value here
-                )
-                if generated_image_filename is None:
-                    flash("Image generation failed. Displaying caption only.")
+            # Render the page immediately, passing the job_id and audio filename
+            # The actual processing will be triggered by JavaScript calling /process_job/<job_id>
+            return render_template("upload.html",
+                                   job_id=job_id, # Pass job ID to template for JS
+                                   audio_filename=served_audio_filename, # Pass audio filename for player
+                                   form_data=form_data_repopulate,
+                                   style_tuning_selected=style_tuning_selected)
 
         except Exception as e:
-            # ... (general error handling remains the same) ...
-            print(f"ERROR during processing: {e}")
-            print("--- Overall Traceback ---")
+            print(f"ERROR during initial file handling for job {job_id}: {e}")
             traceback.print_exc()
-            print("--- End Overall Traceback ---")
-            flash(f"An error occurred: {str(e)}")
-            caption = f"An error occurred during processing: {str(e)}"
-
-
-        finally:
-            # --- 6. Cleanup Audio File ---
-            # ... (audio cleanup remains the same) ...
+            flash(f"An error occurred during file preparation: {str(e)}")
+            # Clean up if file was saved but copy failed etc.
             if os.path.exists(temp_filepath):
-                try:
-                    os.remove(temp_filepath)
-                    print(f"Removed temporary audio file: {temp_filepath}")
-                except OSError as e:
-                    print(f"Error removing temporary audio file {temp_filepath}: {e}")
+                try: os.remove(temp_filepath)
+                except OSError: pass
+            if job_id in jobs: # Remove job if setup failed
+                del jobs[job_id]
+            # Render the form again, possibly without audio/job id
+            return render_template("upload.html", form_data=form_data_repopulate, style_tuning_selected=style_tuning_selected)
 
-
-        # --- 7. Render Result Page ---
-        # ... (rendering result remains the same) ...
-        return render_template("result.html",
-                               caption=caption,
-                               image_filename=generated_image_filename)
+        # Note: The 'finally' block for cleanup is removed from here,
+        # as cleanup now happens after processing in the /process_job route.
 
     # --- GET Request ---
-    return render_template("upload.html")
+    return render_template("upload.html", form_data={}, style_tuning_selected=[])
 
-# --- Route to serve generated images ---
+
+# --- NEW Route for Asynchronous Processing ---
+@app.route("/process_job/<job_id>", methods=["POST"]) # Use POST for triggering action
+def process_job(job_id):
+    print(f"Received request to process job: {job_id}")
+    job_info = jobs.get(job_id)
+
+    if not job_info:
+        print(f"Error: Job ID {job_id} not found.")
+        return jsonify({"error": "Job not found or expired."}), 404
+
+    if job_info["status"] != "pending":
+        print(f"Warning: Job {job_id} already processed or in progress (Status: {job_info['status']}).")
+        return jsonify({"error": f"Job already {job_info['status']}."}), 400
+
+    job_info["status"] = "processing"
+    temp_audio_filepath = job_info["audio_path"]
+
+    try:
+        # --- 1. Run Audio Captioning ---
+        print(f"Job {job_id}: Running audio captioning...")
+        caption_result = run_model_prediction(
+            checkpoint=job_info["model_checkpoint"],
+            audio_path=temp_audio_filepath
+        )
+
+        display_caption = "Captioning failed."
+        image_prompt_caption = None # Initialize
+        final_image_prompt = None
+        prompt_prefix_list = []
+        generated_image_filename = None # Initialize
+
+        if caption_result is not None:
+            # --- 2. Clean Caption ---
+            raw_caption = str(caption_result).strip()
+            display_caption = raw_caption.replace("clotho > caption: ", "").replace("audioset > keywords: ", "").strip()
+            print(f"Job {job_id}: Caption generated: '{display_caption}'")
+
+            # --- 3. Prepare Caption for Image Prompt (Potentially Modify) ---
+            image_prompt_caption = display_caption # Start with the cleaned caption
+
+            # --- Apply modifications ONLY if "Remove Figure" is checked ---
+            if job_info["remove_figure"]:
+                original_caption_for_modif_step = image_prompt_caption # For logging comparison
+
+                # First check: Remove "Someone plays" prefix
+                if image_prompt_caption.lower().startswith("someone plays"):
+                    image_prompt_caption = image_prompt_caption[len("someone plays"):].lstrip(' ,.')
+                    print(f"Job {job_id}: [Remove Figure] Applied 'Someone plays' removal. Result: '{image_prompt_caption}'")
+
+                # Second check: Replace "portrays in" with "portrays" (case-insensitive)
+                # Pattern: matches 'portrays', one or more spaces/tabs, 'in', followed by a word boundary (\b)
+                # This avoids matching 'portrays inside' or similar.
+                pattern = r'portrays\s+in\b'
+                replacement = 'portrays'
+                # Use re.subn to see if any replacements happened
+                image_prompt_caption, num_subs = re.subn(pattern, replacement, image_prompt_caption, flags=re.IGNORECASE)
+
+                if num_subs > 0:
+                     print(f"Job {job_id}: [Remove Figure] Applied 'portrays in' -> 'portrays' replacement ({num_subs} found). Result: '{image_prompt_caption}'")
+
+                # Log final result if any modification happened in this block
+                if image_prompt_caption != original_caption_for_modif_step:
+                     print(f"Job {job_id}: [Remove Figure] Final modified caption for image prompt: '{image_prompt_caption}'")
+                else:
+                     print(f"Job {job_id}: [Remove Figure] No modifications applied to caption for image prompt.")
+
+            # --- End of "Remove Figure" modifications ---
+
+            # --- 4. Construct Image Prompt & Prefixes ---
+            # Use the potentially modified image_prompt_caption
+            prompt_prefix_list = [s for s in job_info["style_tuning"] if s in ["Abstract", "Cartoon", "Photorealistic", "Oil Painting", "Sketch", "Pixel Art", "Vintage", "Surrealism"]]
+            prompt_prefix_list.append("Album cover art inspired by:")
+            final_image_prompt = " ".join(prompt_prefix_list) + " " + image_prompt_caption
+            print(f"Job {job_id}: Final Image Prompt: {final_image_prompt}")
+
+            # --- 5. Run Image Generation ---
+            print(f"Job {job_id}: Starting image generation...")
+            generated_image_filename = generate_image(
+                prompt=final_image_prompt,
+                width=job_info["width_slider"],
+                height=job_info["height_slider"],
+                cfg_trunc_ratio=job_info["cfg_trunc_slider"]
+            )
+            if generated_image_filename:
+                 print(f"Job {job_id}: Image generated: {generated_image_filename}")
+            else:
+                 print(f"Job {job_id}: Image generation failed.")
+
+        else:
+             print(f"Job {job_id}: Audio captioning returned None.")
+             display_caption = "Audio captioning failed to produce a result."
+
+        # --- 6. Update Job Status & Prepare Result ---
+        job_info["status"] = "completed"
+        result_data = {
+            "caption": display_caption, # Always return the original cleaned caption for display
+            "image_filename": generated_image_filename,
+            "prefixes": prompt_prefix_list,
+            "error": None
+        }
+        print(f"Job {job_id}: Processing complete.")
+        return jsonify(result_data)
+
+    except Exception as e:
+        job_info["status"] = "failed"
+        print(f"ERROR processing job {job_id}: {e}")
+        traceback.print_exc()
+        return jsonify({"error": f"Processing failed: {str(e)}", "caption": None, "image_filename": None, "prefixes": []}), 500
+
+    finally:
+        # --- 7. Cleanup ---
+        # ... (Cleanup remains the same) ...
+        if temp_audio_filepath and os.path.exists(temp_audio_filepath):
+            try:
+                os.remove(temp_audio_filepath)
+                print(f"Job {job_id}: Removed temporary audio file: {temp_audio_filepath}")
+            except OSError as e:
+                print(f"Job {job_id}: Error removing temporary audio file {temp_audio_filepath}: {e}")
+        if job_id in jobs and jobs[job_id]["status"] in ["completed", "failed"]:
+             print(f"Job {job_id}: Removing job entry from memory.")
+             try:
+                 del jobs[job_id]
+             except KeyError:
+                 pass
+
+# ... (rest of run.py remains the same)
+
+
+# --- Routes for serving files remain the same ---
 @app.route('/generated_images/<path:filename>')
 def serve_generated_image(filename):
-    # ... (serving route remains the same, using absolute path) ...
-    print(f"Serving request for '{filename}' from directory '{SERVE_IMAGE_DIR}'")
+    # ... (no changes) ...
+    print(f"Serving image request for '{filename}' from directory '{SERVE_IMAGE_DIR}'")
     try:
         return send_from_directory(SERVE_IMAGE_DIR, filename)
     except FileNotFoundError:
          print(f"File not found error: {filename} in {SERVE_IMAGE_DIR}")
-         flash(f"Error: Could not find generated image {filename}", "error")
          return f"Error: Image {filename} not found.", 404
+
+@app.route('/served_audio/<path:filename>')
+def serve_uploaded_audio(filename):
+    # ... (no changes) ...
+    print(f"Serving audio request for '{filename}' from directory '{SERVE_AUDIO_DIR}'")
+    try:
+        return send_from_directory(SERVE_AUDIO_DIR, filename, as_attachment=False) # Serve inline
+    except FileNotFoundError:
+        print(f"File not found error: {filename} in {SERVE_AUDIO_DIR}")
+        return f"Error: Audio file {filename} not found.", 404
+
 
 if __name__ == "__main__":
     # ... (startup messages remain the same) ...
     print("Starting Flask development server...")
-    print(f"Base directory (BASE_DIR): {BASE_DIR}")
-    print(f"Absolute image save/serve path (SERVE_IMAGE_DIR): {SERVE_IMAGE_DIR}")
-    if not os.path.isdir(SERVE_IMAGE_DIR):
-         print(f"WARNING: The image directory does not seem to exist: {SERVE_IMAGE_DIR}")
-
-    if torch.cuda.is_available():
-        print(f"CUDA available: {torch.cuda.get_device_name(0)}")
-    else:
-        print("WARNING: CUDA not available, Lumina model might fail or be very slow.")
-
+    # ... (rest of __main__ block) ...
     app.run(debug=True, host='0.0.0.0', port=5000)

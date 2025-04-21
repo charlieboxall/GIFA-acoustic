@@ -3,141 +3,415 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload Audio for Captioning & Image Generation</title>
+    <title>Audio Captioning & Image Generation</title>
     <style>
-        /* ... (styles remain the same) ... */
-        body { font-family: sans-serif; padding: 20px; max-width: 700px; margin: auto; }
+        body {
+            font-family: sans-serif;
+            margin: 0; /* Remove default body margin */
+            padding: 0; /* Remove default body padding */
+            background-color: #f4f4f4; /* Optional: light background for contrast */
+        }
+
+        /* New wrapper for centering */
+        .main-content-wrapper {
+            max-width: 1200px; /* Maximum width of the content area */
+            margin: 30px auto; /* Top/bottom margin, auto left/right for centering */
+            padding: 20px;     /* Padding inside the wrapper */
+            background-color: #fff; /* White background for the content area */
+            box-shadow: 0 0 10px rgba(0,0,0,0.1); /* Optional: subtle shadow */
+            border-radius: 8px; /* Optional: rounded corners */
+            box-sizing: border-box;
+        }
+
+        /* Container for the two columns */
+        .container {
+            display: flex;
+            flex-wrap: wrap; /* Allows stacking on narrow screens / if min-width forces it */
+            gap: 30px; /* Space between columns */
+            width: 100%; /* Take full width of the wrapper */
+            box-sizing: border-box;
+            margin-top: 20px; /* Add some space below flash messages/title */
+        }
+        .controls {
+            flex: 1 1 50%; /* Aim for 50% width */
+            min-width: 320px; /* Slightly reduced min-width */
+            box-sizing: border-box;
+        }
+        .results {
+            flex: 1 1 50%; /* Aim for 50% width */
+            min-width: 320px; /* Slightly reduced min-width */
+            border-left: 1px solid #eee;
+            padding-left: 30px;
+            box-sizing: border-box;
+        }
+
+        /* Flash message styling */
         .flash { padding: 10px; margin-bottom: 15px; border-radius: 4px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;}
-        form { margin-top: 20px; border: 1px solid #ccc; padding: 20px; border-radius: 5px; }
+        .flash.success { background-color: #d4edda; color: #155724; border-color: #c3e6cb;}
+        .flash.info { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
+
+        /* Title Styling */
+        h1 {
+            text-align: center; /* Center the title text */
+            margin-bottom: 20px; /* Space below the title */
+        }
+
+        /* Form styling */
+        form { margin-top: 0; border: 1px solid #ccc; padding: 20px; border-radius: 5px; }
         label, select, button, input[type="file"], fieldset { display: block; margin-bottom: 15px; width: 100%; box-sizing: border-box; }
         input[type="file"] { border: 1px solid #ccc; padding: 5px; }
         select, button { padding: 10px; }
-        button { background-color: #007bff; color: white; border: none; cursor: pointer; font-size: 1em; }
-        button:hover { background-color: #0056b3; }
+        button[type="submit"] { background-color: #007bff; color: white; border: none; cursor: pointer; font-size: 1em; }
+        button[type="submit"]:hover { background-color: #0056b3; }
         fieldset { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; }
         legend { font-weight: bold; padding: 0 10px; }
-        .slider-container { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
-        .slider-container label { flex-basis: 200px; margin-bottom: 0; } /* Adjusted width for longer label */
-        .slider-container input[type="range"] { flex-grow: 1; margin-bottom: 0; }
-        .slider-container span { font-weight: bold; min-width: 45px; text-align: right; } /* Adjusted width */
-        /* Style for checkbox group */
-        .checkbox-group {
-            display: grid; /* Use grid for better alignment */
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); /* Responsive columns */
-            gap: 10px; /* Spacing between items */
-            margin-bottom: 15px; /* Spacing below the group */
+        .slider-container { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; flex-wrap: wrap; } /* Allow wrap */
+        .slider-container label { flex: 0 0 180px; margin-bottom: 0; } /* Fixed width */
+        .slider-container input[type="range"] { flex-grow: 1; min-width: 100px; margin-bottom: 0; }
+        .slider-container span { font-weight: bold; min-width: 45px; text-align: right; }
+
+        /* Checkbox styling */
+        .checkbox-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px; }
+        .checkbox-group label, .checkbox-single label { display: flex; align-items: center; margin-bottom: 0; width: auto; cursor: pointer; font-size: 0.9em;}
+        .checkbox-group input[type="checkbox"], .checkbox-single input[type="checkbox"] { width: auto; margin-right: 8px; }
+        .checkbox-single { margin-bottom: 15px; }
+
+        /* Results Styling */
+        .results h2 { margin-top: 0; }
+        .results h3 { margin-bottom: 10px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        .result-item { margin-bottom: 25px; }
+        .result-item .placeholder { color: #888; font-style: italic; font-size: 0.9em; }
+        .result-item .loading { color: #555; font-style: italic; font-size: 0.9em; }
+        .result-item .error { color: #dc3545; font-weight: bold; font-size: 0.9em; }
+        p.caption { background-color: #f0f0f0; padding: 15px; border: 1px solid #ccc; border-radius: 4px; white-space: pre-wrap; margin-top: 5px; margin-bottom: 0;}
+        img.generated-image { max-width: 100%; height: auto; display: block; margin-top: 10px; border: 1px solid #ddd; border-radius: 4px; background-color: #eee; }
+        audio { width: 100%; margin-top: 10px; }
+        .no-image { color: #888; font-style: italic; margin-top: 10px; }
+        .prefix-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+        .prefix-tag { background-color: #e9ecef; border: 1px solid #ced4da; color: #495057; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; white-space: nowrap; }
+        .spinner { display: inline-block; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 1em; height: 1em; animation: spin 1s linear infinite; margin-left: 5px; vertical-align: middle; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+
+        /* Responsive adjustments: Force stacking below 800px */
+        @media (max-width: 800px) {
+            .container {
+                flex-direction: column; /* Stack columns */
+            }
+            .controls, .results {
+                flex-basis: auto; /* Reset basis when stacked */
+                width: 100%; /* Take full width when stacked */
+                min-width: unset; /* Remove min-width when stacked */
+            }
+            .results {
+                border-left: none; /* Remove side border */
+                padding-left: 0;
+                border-top: 1px solid #eee; /* Add top border */
+                padding-top: 20px;
+                margin-top: 20px;
+            }
+            /* Adjust wrapper padding on smaller screens if needed */
+            .main-content-wrapper {
+                margin: 15px auto;
+                padding: 15px;
+            }
         }
-        .checkbox-group label {
-            display: flex; /* Align checkbox and text */
-            align-items: center;
-            margin-bottom: 0; /* Remove default block margin */
-            width: auto; /* Allow label to fit content */
-            cursor: pointer;
+         /* Optional: Further reduce padding on very small screens */
+        @media (max-width: 480px) {
+            .main-content-wrapper {
+                 margin: 10px auto;
+                 padding: 10px;
+                 border-radius: 0; /* Full width edge-to-edge feel */
+            }
+             .slider-container label { flex-basis: 120px; } /* Allow slider label to shrink */
         }
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
-            margin-right: 8px; /* Space between checkbox and text */
-        }
+
     </style>
 </head>
 <body>
-    <h2>Upload Audio File (.mp3, .wav)</h2>
-    <p>Generates a caption from the audio and then creates album cover art based on the caption.</p>
 
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        {% for message in messages %}
-          <div class="flash">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
+    <div class="main-content-wrapper">
 
-    <form action="/" method="post" enctype="multipart/form-data">
+        <h1>Audio -> Caption -> Image</h1>
 
-        <fieldset>
-            <legend>Audio Processing</legend>
-            <label for="file">1. Choose audio file:</label>
-            <input type="file" name="file" id="file" accept=".mp3,.wav" required>
+        <div id="flash-messages">
+            {% with messages = get_flashed_messages() %}
+              {% if messages %}
+                {% for message in messages %}
+                  <div class="flash">{{ message }}</div>
+                {% endfor %}
+              {% endif %}
+            {% endwith %}
+        </div>
 
-            <label for="model_checkpoint">2. Select Audio Captioning Model:</label>
-            <select name="model_checkpoint" id="model_checkpoint" required>
-                <option value="" disabled selected>-- Please choose a model --</option>
-                <option value="ac_models/finetuned_models/ftcanvers">Old Fine-tuned Canvers</option>
-                <option value="ac_models/finetuned_models/ftcanvers-PLUS">New Fine-tuned Canvers</option>
-                <option value="ac_models/finetuned_models/ftwhispertiny-PLUS">New Fine-tuned WhisperTiny</option>
-                <option value="ac_models/finetuned_models/ftwhispertiny">Old Fine-tuned WhisperTiny</option>
-            </select>
-        </fieldset>
+        <div class="container">
+            <div class="controls">
+                <h2>Controls</h2>
+                <form action="/" method="post" enctype="multipart/form-data">
+                    <fieldset>
+                        <legend>Audio Processing</legend>
+                        <label for="file">1. Choose audio file:</label>
+                        <input type="file" name="file" id="file" accept=".mp3,.wav" required>
 
-        <fieldset>
-            <legend>Image Generation Tuning (Guidance Scale Fixed at 4.0)</legend>
+                        <label for="model_checkpoint">2. Select Audio Captioning Model:</label>
+                        <select name="model_checkpoint" id="model_checkpoint" required>
+                             <option value="" disabled {% if not form_data.get('model_checkpoint') %}selected{% endif %}>-- Please choose --</option>
+                             <option value="ac_models/finetuned_models/ftcanvers" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftcanvers' %}selected{% endif %}>Old Canvers</option>
+                             <option value="ac_models/finetuned_models/ftcanvers-PLUS" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftcanvers-PLUS' %}selected{% endif %}>New Canvers</option>
+                             <option value="ac_models/finetuned_models/ftwhispertiny-PLUS" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftwhispertiny-PLUS' %}selected{% endif %}>New WhisperTiny</option>
+                             <option value="ac_models/finetuned_models/ftwhispertiny" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftwhispertiny' %}selected{% endif %}>Old WhisperTiny</option>
+                        </select>
+                    </fieldset>
 
-            <label>3. Image Style Tuning (Optional):</label>
-            <div class="checkbox-group">
-                 <label for="style_abstract">
-                    <input type="checkbox" id="style_abstract" name="style_tuning" value="Abstract"> Abstract
-                 </label>
-                 <label for="style_cartoon">
-                    <input type="checkbox" id="style_cartoon" name="style_tuning" value="Cartoon"> Cartoon
-                 </label>
-                 <label for="style_photorealistic">
-                    <input type="checkbox" id="style_photorealistic" name="style_tuning" value="Photorealistic"> Photorealistic
-                 </label>
-                  <label for="style_oil_painting">
-                    <input type="checkbox" id="style_oil_painting" name="style_tuning" value="Oil Painting"> Oil Painting
-                 </label>
-                 <label for="style_sketch">
-                    <input type="checkbox" id="style_sketch" name="style_tuning" value="Sketch"> Sketch
-                 </label>
-                 <label for="style_pixel_art">
-                    <input type="checkbox" id="style_pixel_art" name="style_tuning" value="Pixel Art"> Pixel Art
-                 </label>
-                 <label for="style_vintage">
-                    <input type="checkbox" id="style_vintage" name="style_tuning" value="Vintage"> Vintage
-                 </label>
-                 <label for="style_surrealism">
-                    <input type="checkbox" id="style_surrealism" name="style_tuning" value="Surrealism"> Surrealism
-                 </label>
+                    <fieldset>
+                        <legend>Image Generation Tuning (Guidance Scale Fixed)</legend>
+                        <label>3. Image Style Tuning (Optional):</label>
+                        <div class="checkbox-group">
+                            {% set styles = ["Abstract", "Cartoon", "Photorealistic", "Oil Painting", "Sketch", "Pixel Art", "Vintage", "Surrealism"] %}
+                            {% for style in styles %}
+                            <label for="style_{{ style|lower|replace(' ', '_') }}">
+                                <input type="checkbox" id="style_{{ style|lower|replace(' ', '_') }}" name="style_tuning" value="{{ style }}"
+                                       {% if style in style_tuning_selected %}checked{% endif %}> {{ style }}
+                            </label>
+                            {% endfor %}
+                        </div>
+                         <div class="checkbox-single">
+                             <label for="remove_figure">
+                                <input type="checkbox" id="remove_figure" name="remove_figure" value="on"
+                                       {% if form_data.get('remove_figure') == 'on' %}checked{% endif %}>
+                                Attempt to remove figure (if caption starts "Someone plays")
+                             </label>
+                         </div>
+                        <div class="slider-container">
+                            <label for="cfg_trunc_slider">4. Detail (CFG Trunc):</label>
+                            <input type="range" id="cfg_trunc_slider" name="cfg_trunc_slider"
+                                   min="0.1" max="1.0" step="0.01" value="{{ form_data.get('cfg_trunc_slider', 1.0) }}"
+                                   oninput="updateSliderValue('cfg_trunc_value', this.value)">
+                            <span id="cfg_trunc_value">{{ "%.2f"|format(form_data.get('cfg_trunc_slider', 1.0)|float) }}</span>
+                        </div>
+                         <div class="slider-container">
+                            <label for="width_slider">5. Image Width:</label>
+                            <input type="range" id="width_slider" name="width_slider" min="64" max="512" step="64" value="{{ form_data.get('width_slider', 512) }}" oninput="updateSliderValue('width_value', this.value)">
+                            <span id="width_value">{{ form_data.get('width_slider', 512) }}</span> px
+                         </div>
+                         <div class="slider-container">
+                            <label for="height_slider">6. Image Height:</label>
+                            <input type="range" id="height_slider" name="height_slider" min="64" max="512" step="64" value="{{ form_data.get('height_slider', 512) }}" oninput="updateSliderValue('height_value', this.value)">
+                            <span id="height_value">{{ form_data.get('height_slider', 512) }}</span> px
+                         </div>
+                    </fieldset>
+                    <button type="submit">Upload and Generate</button>
+                </form>
+            </div><div class="results">
+                <h2>Results</h2>
+
+                <div class="result-item">
+                    <h3>Uploaded Audio:</h3>
+                    <div id="audio-result">
+                        {% if audio_filename %}
+                            <audio controls src="{{ url_for('serve_uploaded_audio', filename=audio_filename) }}">
+                                Your browser does not support the audio element.
+                            </audio>
+                        {% else %}
+                            <span class="placeholder">(Audio will appear here after upload)</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="result-item">
+                    <h3>Generated Caption:</h3>
+                    <div id="caption-result">
+                        <span class="placeholder">(Caption will appear here...)</span>
+                    </div>
+                </div>
+
+                 <div class="result-item">
+                    <h3>Image Prefixes Used:</h3>
+                    <div id="prefixes-result">
+                         <span class="placeholder">(Selected styles/prefixes will appear here...)</span>
+                    </div>
+                 </div>
+
+                <div class="result-item">
+                    <h3>Generated Image:</h3>
+                    <div id="image-result">
+                        <span class="placeholder">(Image will appear here...)</span>
+                    </div>
+                </div>
+
             </div>
-            <div class="slider-container">
-                <label for="cfg_trunc_slider">4. Detail (CFG Trunc Ratio):</label>
-                <input type="range" id="cfg_trunc_slider" name="cfg_trunc_slider"
-                       min="0.1" max="1.0" step="0.01" value="1.0"
-                       oninput="updateSliderValue('cfg_trunc_value', this.value)">
-                <span id="cfg_trunc_value">1.00</span>
-            </div>
-
-             <div class="slider-container">
-                <label for="width_slider">5. Image Width:</label>
-                <input type="range" id="width_slider" name="width_slider" min="64" max="512" step="64" value="512" oninput="updateSliderValue('width_value', this.value)">
-                <span id="width_value">512</span> px
-            </div>
-
-             <div class="slider-container">
-                <label for="height_slider">6. Image Height:</label>
-                <input type="range" id="height_slider" name="height_slider" min="64" max="512" step="64" value="512" oninput="updateSliderValue('height_value', this.value)">
-                <span id="height_value">512</span> px
-            </div>
-
-        </fieldset>
-
-        <button type="submit">Upload and Generate</button>
-    </form>
-
-    <script>
-        // ... (JavaScript remains the same) ...
-        function updateSliderValue(spanId, value) {
-            let displayValue = value;
-            if (spanId === 'cfg_trunc_value') {
-                displayValue = parseFloat(value).toFixed(2);
-            }
-            document.getElementById(spanId).textContent = displayValue;
+        </div></div><script>
+    // --- Slider Update Function ---
+    function updateSliderValue(spanId, value) {
+        let displayValue = value;
+        if (spanId === 'cfg_trunc_value') {
+            displayValue = parseFloat(value).toFixed(2);
         }
-        document.addEventListener('DOMContentLoaded', (event) => {
-            updateSliderValue('cfg_trunc_value', document.getElementById('cfg_trunc_slider').value);
-            updateSliderValue('width_value', document.getElementById('width_slider').value);
-            updateSliderValue('height_value', document.getElementById('height_slider').value);
-        });
-    </script>
+         const element = document.getElementById(spanId);
+         if (element) {
+             element.textContent = displayValue;
+         }
+    }
+
+
+    // --- Initialize Sliders on Load ---
+     document.addEventListener('DOMContentLoaded', (event) => {
+         const cfgSlider = document.getElementById('cfg_trunc_slider');
+         const widthSlider = document.getElementById('width_slider');
+         const heightSlider = document.getElementById('height_slider');
+
+         if (cfgSlider) updateSliderValue('cfg_trunc_value', cfgSlider.value);
+         if (widthSlider) updateSliderValue('width_value', widthSlider.value);
+         if (heightSlider) updateSliderValue('height_value', heightSlider.value);
+
+         // --- Check if a job ID exists (meaning form was just submitted) ---
+         const jobID = "{{ job_id | default('null') }}"; // Get job_id from Flask template
+
+         if (jobID && jobID !== 'null') {
+             console.log("Job ID found:", jobID, "-> Starting background processing request.");
+             triggerJobProcessing(jobID);
+         } else {
+             console.log("No active job ID found on page load.");
+         }
+     });
+
+    // --- Function to Trigger Background Job ---
+    function triggerJobProcessing(jobId) {
+        const captionResultDiv = document.getElementById('caption-result');
+        const imageResultDiv = document.getElementById('image-result');
+        const prefixesResultDiv = document.getElementById('prefixes-result');
+        const flashMessagesDiv = document.getElementById('flash-messages'); // Area for dynamic messages
+
+        // --- Display Loading Indicators ---
+        captionResultDiv.innerHTML = '<span class="loading">Generating caption... <span class="spinner"></span></span>';
+        // Set initial states for others, assuming caption is first
+        prefixesResultDiv.innerHTML = '<span class="placeholder">(Waiting for caption...)</span>';
+        imageResultDiv.innerHTML = '<span class="placeholder">(Waiting for caption...)</span>';
+
+        // Add processing message
+        const infoFlash = document.createElement('div');
+        infoFlash.className = 'flash info';
+        infoFlash.textContent = `Processing started (Job ID: ${jobId}). Please wait...`;
+        flashMessagesDiv.appendChild(infoFlash);
+
+
+        // --- Make POST request to the processing endpoint ---
+        fetch(`/process_job/${jobId}`, { method: 'POST' })
+            .then(response => {
+                if (!response.ok) {
+                    // Try to get error message from JSON response body
+                    return response.json().then(errData => {
+                        throw new Error(errData.error || `HTTP error! Status: ${response.status}`);
+                    }).catch(() => {
+                        // Fallback if response is not JSON or JSON parsing fails
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    });
+                }
+                return response.json(); // Parse JSON body
+            })
+            .then(data => {
+                console.log("Received processing results:", data);
+                if (infoFlash) infoFlash.remove(); // Remove processing message
+
+                // *** === Sequential UI Update Starts Here === ***
+
+                let captionGenerated = false; // Flag to track if caption succeeded
+
+                // --- 1. Update Caption ---
+                if (data.caption && !data.error) { // Check for caption data AND no major error
+                    captionResultDiv.innerHTML = `<p class="caption">${escapeHTML(data.caption)}</p>`;
+                    captionGenerated = true;
+                    // Now update states for next steps
+                    prefixesResultDiv.innerHTML = '<span class="loading">Generating prefixes... <span class="spinner"></span></span>';
+                    imageResultDiv.innerHTML = '<span class="loading">Generating image... <span class="spinner"></span></span>';
+                } else {
+                    // Handle caption failure or major processing error
+                    captionResultDiv.innerHTML = `<span class="error">${data.error ? escapeHTML(data.error) : '(Caption generation failed)'}</span>`;
+                    // Update other placeholders to indicate skipping
+                    prefixesResultDiv.innerHTML = '<span class="placeholder">(Skipped due to error)</span>';
+                    imageResultDiv.innerHTML = '<span class="placeholder">(Skipped due to error)</span>';
+                }
+
+                // --- 2. Update Prefixes (Only if caption was generated) ---
+                if (captionGenerated) {
+                    if (data.prefixes && data.prefixes.length > 0) {
+                        let prefixesHTML = '<div class="prefix-list">';
+                        data.prefixes.forEach(prefix => {
+                            prefixesHTML += `<span class="prefix-tag">${escapeHTML(prefix)}</span>`;
+                        });
+                        prefixesHTML += '</div>';
+                        prefixesResultDiv.innerHTML = prefixesHTML;
+                    } else {
+                         // Caption succeeded, but no prefixes selected/returned
+                         prefixesResultDiv.innerHTML = '<span class="placeholder">(No specific style prefixes selected or returned)</span>';
+                    }
+                }
+                // If caption failed, prefixesResultDiv already shows skipped/error state
+
+                // --- 3. Update Image (Only if caption was generated) ---
+                if (captionGenerated) {
+                     if (data.image_filename) {
+                         const imageUrl = `/generated_images/${data.image_filename}`;
+                         const img = new Image();
+                         img.onload = () => {
+                             imageResultDiv.innerHTML = ''; // Clear loading spinner
+                             imageResultDiv.appendChild(img); // Add the loaded image
+                         };
+                         img.onerror = () => {
+                             imageResultDiv.innerHTML = '<span class="error">(Failed to load generated image)</span>';
+                         };
+                         img.src = imageUrl;
+                         img.alt = "Generated album cover art";
+                         img.className = "generated-image";
+                         // Show loading indicator while image downloads
+                         imageResultDiv.innerHTML = '<span class="loading">Loading image... <span class="spinner"></span></span>';
+                     } else {
+                         // Caption succeeded, but image failed/skipped
+                         imageResultDiv.innerHTML = '<span class="error">(Image generation failed or skipped)</span>';
+                     }
+                }
+                 // If caption failed, imageResultDiv already shows skipped/error state
+
+
+                // Display final overall status message
+                if (data.error) {
+                     displayFlashMessage(data.error, 'error'); // Display specific error if returned
+                } else {
+                     displayFlashMessage('Processing completed!', 'success');
+                }
+
+                 // *** === Sequential UI Update Ends Here === ***
+
+            })
+            .catch(error => {
+                console.error('Error fetching job results:', error);
+                if (infoFlash) infoFlash.remove();
+                // Display error messages in the results area and flash
+                captionResultDiv.innerHTML = `<span class="error">Error: ${escapeHTML(error.message)}</span>`;
+                imageResultDiv.innerHTML = `<span class="error">Processing failed</span>`;
+                prefixesResultDiv.innerHTML = `<span class="error">Processing failed</span>`;
+                displayFlashMessage(`Error during processing: ${escapeHTML(error.message)}`, 'error');
+            });
+    }
+
+     // --- Helper Functions ---
+     function displayFlashMessage(message, type = 'info') {
+         const flashMessagesDiv = document.getElementById('flash-messages');
+         const flashDiv = document.createElement('div');
+         flashDiv.className = `flash ${type}`; // type can be 'info', 'success', 'error'
+         flashDiv.textContent = message;
+         flashMessagesDiv.appendChild(flashDiv);
+         // Optional: Auto-remove after some time
+         // setTimeout(() => { flashDiv.remove(); }, 7000);
+     }
+
+     function escapeHTML(str) {
+         if (!str) return ''; // Handle null or undefined input
+         const div = document.createElement('div');
+         div.appendChild(document.createTextNode(str));
+         return div.innerHTML;
+     }
+
+</script>
 </body>
 </html>

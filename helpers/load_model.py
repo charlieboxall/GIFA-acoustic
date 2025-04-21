@@ -35,9 +35,8 @@ def load_ac_model(checkpoint, TRAINING=False):
 
         elif checkpoint == "circulus/canvers-audio-caption-v1":
             model = WhisperForConditionalGeneration.from_pretrained(checkpoint)
-            if TRAINING:
-                processor = WhisperProcessor.from_pretrained(checkpoint, language="en", task="transcribe")
-                return model, None, None, processor
+            processor = WhisperProcessor.from_pretrained(checkpoint, language="en", task="transcribe")
+            return model, None, None, processor
         
         elif checkpoint == "ac_models/finetuned_models/ftcanvers":
             model = WhisperForConditionalGeneration.from_pretrained(checkpoint)
