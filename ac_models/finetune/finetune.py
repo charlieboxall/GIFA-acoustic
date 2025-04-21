@@ -32,10 +32,6 @@ class AudioCaptioningDataset(Dataset):
             audio, sr = librosa.load(audio_path, sr=self.sampling_rate)
         except Exception as e:
             print(f"Error loading audio file {audio_path}: {e}")
-            # Return None or handle appropriately (e.g., return a dummy sample)
-            # For simplicity, we might let it crash or return None and filter later in collate_fn
-            # Returning a dummy might be safer for dataloader robustness
-            # For this example, we'll raise it to be explicit about the error source
             raise IOError(f"Could not load audio file: {audio_path}") from e
 
 
