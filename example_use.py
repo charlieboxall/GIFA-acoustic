@@ -1,5 +1,3 @@
-# my_project.py
-
 # 1. Import the GIFA class from your library file
 from gifa_library import GIFA
 
