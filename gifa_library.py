@@ -1,11 +1,9 @@
-# gifa_library.py
-
 import os
 import traceback
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 
+# Audio Captioning Import
 try:
-    # Assuming predict.py's main function returns the caption string
     from ac_models.predict.predict import main as generate_audio_caption
 except ImportError as e:
     print(f"Warning: Could not import audio captioning module: {e}")
@@ -16,155 +14,225 @@ except AttributeError:
     print("Audio captioning functionality will be unavailable.")
     generate_audio_caption = None
 
+# Image Generation Imports
+# Lumina
 try:
-    # Import both the generation function and the pipeline loader
-    from T2I_models.lumina_gen import generate_image, get_lumina_pipeline
-    from PIL import Image # Import PIL here as we might return Image objects
+    from T2I_models.lumina_gen import generate_image as generate_lumina_image, get_lumina_pipeline
+    LUMINA_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Could not import image generation module or PIL: {e}")
-    print("Image generation functionality will be unavailable.")
-    generate_image = None
+    print(f"Warning: Could not import Lumina image generation module (lumina_gen): {e}")
+    generate_lumina_image = None
     get_lumina_pipeline = None
-    Image = None # type: ignore
+    LUMINA_AVAILABLE = False
 except AttributeError:
-    print("Warning: Could not find 'generate_image' or 'get_lumina_pipeline' in 'T2I_models.lumina_gen'.")
-    print("Image generation functionality will be unavailable.")
-    generate_image = None
+    print("Warning: Could not find expected functions ('generate_image', 'get_lumina_pipeline') in 'T2I_models.lumina_gen'.")
+    generate_lumina_image = None
     get_lumina_pipeline = None
+    LUMINA_AVAILABLE = False
+
+# Stable Diffusion
+try:
+    from T2I_models.sd_gen import generate_image as generate_sd_image, get_sd_pipeline
+    SD_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import Stable Diffusion image generation module (sd_gen): {e}")
+    generate_sd_image = None
+    get_sd_pipeline = None
+    SD_AVAILABLE = False
+except AttributeError:
+    print("Warning: Could not find expected functions ('generate_image', 'get_sd_pipeline') in 'T2I_models.sd_gen'.")
+    generate_sd_image = None
+    get_sd_pipeline = None
+    SD_AVAILABLE = False
+
+# Utility Import
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    print("Warning: PIL/Pillow library not found. Returning image objects is disabled.")
+    Image = None
+    PIL_AVAILABLE = False
 
 
 class GIFA:
     """
     A class to generate images from audio files using audio captioning
-    and text-to-image models.
+    and text-to-image models (Lumina or Stable Diffusion).
     """
 
-    # --- Default Configuration ---
+    # Default Configuration 
     AUDIO_MODEL_BASE_PATH: str = "ac_models/finetuned_models"
     DEFAULT_OUTPUT_DIR: str = "output_images"
-    DEFAULT_WIDTH: int = 512
-    DEFAULT_HEIGHT: int = 512
-    DEFAULT_CFG_TRUNC_RATIO: float = 1.0
     DEFAULT_SEED: int = 0
     FIXED_PROMPT_PREFIX: str = "Album Cover art inspired by: "
 
-    def __init__(self, preload_image_model: bool = True):
+    # Lumina Defaults
+    DEFAULT_LUMINA_WIDTH: int = 512
+    DEFAULT_LUMINA_HEIGHT: int = 512
+    DEFAULT_LUMINA_CFG_TRUNC_RATIO: float = 1.0
+
+    # Stable Diffusion Defaults
+    DEFAULT_SD_WIDTH: int = 512
+    DEFAULT_SD_HEIGHT: int = 512
+    DEFAULT_SD_GUIDANCE_SCALE: float = 7.5
+    DEFAULT_SD_NUM_STEPS: int = 25
+
+
+    def __init__(self, preload_image_model: Optional[Literal['lumina', 'sd', 'both', 'none']] = 'lumina'):
         """
         Initializes the GIFA wrapper.
 
         Args:
-            preload_image_model (bool): If True, attempts to load the
-                                        image generation model immediately.
-                                        Defaults to True.
+            preload_image_model (Optional[Literal['lumina', 'sd', 'both', 'none']]):
+                Specifies which image generation model(s) to preload.
+                'lumina': Preload only Lumina (if available).
+                'sd': Preload only Stable Diffusion (if available).
+                'both': Preload both Lumina and Stable Diffusion (if available).
+                'none': Do not preload any image models.
+                Defaults to 'lumina'.
         """
         print("Initializing GIFA...")
         self._check_dependencies()
         self.lumina_pipe = None
+        self.sd_pipe = None # Renamed from sd_pipe for consistency
 
-        if preload_image_model and get_lumina_pipeline:
-            print("Preloading image generation model...")
-            try:
-                # Attempt to load the pipeline for potentially faster first use
-                self.lumina_pipe = get_lumina_pipeline()
-                if self.lumina_pipe is None:
-                    print("Warning: Lumina pipeline failed to load during initialization.")
-                else:
-                    print("GIFA Initialized: Lumina pipeline preloaded.")
-            except Exception as e:
-                print(f"Warning: Exception during Lumina pipeline preloading: {e}")
-                traceback.print_exc()
-        elif preload_image_model:
-             print("Warning: Cannot preload image model - 'get_lumina_pipeline' not available.")
-        else:
-            print("Image model preloading skipped.")
+        if preload_image_model in ['lumina', 'both']:
+            if LUMINA_AVAILABLE and get_lumina_pipeline:
+                print("Preloading Lumina image generation model...")
+                try:
+                    self.lumina_pipe = get_lumina_pipeline()
+                    if self.lumina_pipe is None:
+                        print("Warning: Lumina pipeline failed to load during initialization.")
+                    else:
+                        print("GIFA Initialized: Lumina pipeline preloaded.")
+                except Exception as e:
+                    print(f"Warning: Exception during Lumina pipeline preloading: {e}")
+                    traceback.print_exc()
+            elif preload_image_model == 'lumina':
+                 print("Warning: Cannot preload Lumina model - it's not available or loader is missing.")
+
+        if preload_image_model in ['sd', 'both']:
+            if SD_AVAILABLE and get_sd_pipeline:
+                print("Preloading Stable Diffusion image generation model...")
+                try:
+                    self.sd_pipe = get_sd_pipeline()
+                    if self.sd_pipe is None:
+                        print("Warning: Stable Diffusion pipeline failed to load during initialization.")
+                    else:
+                        print("GIFA Initialized: Stable Diffusion pipeline preloaded.")
+                except Exception as e:
+                    print(f"Warning: Exception during Stable Diffusion pipeline preloading: {e}")
+                    traceback.print_exc()
+            elif preload_image_model == 'sd':
+                print("Warning: Cannot preload Stable Diffusion model - it's not available or loader is missing.")
+
+        if preload_image_model == 'none':
+             print("Image model preloading skipped.")
 
 
     def _check_dependencies(self):
         """Checks if necessary functions were imported."""
         if not generate_audio_caption:
-             print("Critical Warning: Audio captioning function ('generate_audio_caption') is missing.")
-        if not generate_image:
-             print("Critical Warning: Image generation function ('generate_image') is missing.")
-        if not get_lumina_pipeline:
-             print("Critical Warning: Image pipeline loader ('get_lumina_pipeline') is missing.")
-        if not Image:
-             print("Critical Warning: PIL/Pillow library ('Image') is missing.")
-
+            print("Critical Warning: Audio captioning function ('generate_audio_caption') is missing.")
+        if not LUMINA_AVAILABLE:
+            print("Warning: Lumina generation functions (from lumina_gen) are missing.")
+        if not SD_AVAILABLE:
+            print("Warning: Stable Diffusion generation functions (from sd_gen) are missing.")
+        if not LUMINA_AVAILABLE and not SD_AVAILABLE:
+             print("Critical Warning: NO image generation models (Lumina or SD) are available.")
+        if not PIL_AVAILABLE:
+            print("Warning: PIL/Pillow library ('Image') is missing. Cannot return Image objects.")
 
     def pipe(self,
              audio_path: str,
-             model: str = 'ftwhispertiny',
+             image_model_type: Literal['lumina', 'sd'] = 'lumina',
+             audio_model: str = 'ftwhispertiny',
              prefixes: Optional[List[str]] = None,
              output_dir: str = DEFAULT_OUTPUT_DIR,
-             width: int = DEFAULT_WIDTH,
-             height: int = DEFAULT_HEIGHT,
-             cfg_trunc_ratio: float = DEFAULT_CFG_TRUNC_RATIO,
+             # Universal Params
              seed: int = DEFAULT_SEED,
              save_image: bool = True,
-             return_image_object: bool = False) -> Union[str, 'Image.Image', None]:
+             return_image_object: bool = False,
+             # Model Specific Params (with defaults)
+             width: Optional[int] = None,
+             height: Optional[int] = None,
+             # Lumina specific
+             cfg_trunc_ratio: float = DEFAULT_LUMINA_CFG_TRUNC_RATIO,
+             # SD specific
+             guidance_scale: float = DEFAULT_SD_GUIDANCE_SCALE,
+             num_inference_steps: int = DEFAULT_SD_NUM_STEPS
+             ) -> Union[str, 'Image.Image', None]:
         """
-        Processes an audio file to generate an image based on its caption.
+        Processes an audio file to generate an image based on its caption,
+        using either Lumina or Stable Diffusion.
 
         Args:
             audio_path (str): Path to the input audio file (e.g., sound.wav).
-            model (str): Name of the audio captioning model to use
-                         ('ftwhispertiny' or 'ftcanvers'). Defaults to 'ftwhispertiny'.
-            prefixes (Optional[List[str]]): A list of strings to prepend to the
-                                            prompt (e.g., ["Pixel art", "8-bit"]).
-                                            Defaults to None (no prefixes).
-            output_dir (str): Directory where the generated image will be saved
-                              if save_image is True. Defaults to 'output_images'.
-            width (int): Desired width of the generated image. Defaults to 512.
-            height (int): Desired height of the generated image. Defaults to 512.
-            cfg_trunc_ratio (float): CFG Truncation Ratio for the image model.
-                                     Defaults to 1.0.
-            seed (int): Random seed for image generation. Defaults to 0.
-            save_image (bool): If True, saves the generated image to the output_dir.
-                               Defaults to True.
-            return_image_object (bool): If True, returns the generated image as a
-                                        PIL Image object. Defaults to False.
+            image_model_type (Literal['lumina', 'sd']): The image generation model to use.
+                                                        Defaults to 'lumina'.
+            audio_model (str): Name of the audio captioning model ('ftwhispertiny' or 'ftcanvers').
+                               Defaults to 'ftwhispertiny'.
+            prefixes (Optional[List[str]]): List of strings to prepend to the prompt.
+            output_dir (str): Directory to save the image if save_image is True.
+            seed (int): Random seed for image generation.
+            save_image (bool): If True, saves the image to output_dir.
+            return_image_object (bool): If True and PIL is available, returns the PIL Image object.
+            width (Optional[int]): Desired image width. Defaults to model standard (e.g., 1024 Lumina, 512 SD).
+            height (Optional[int]): Desired image height. Defaults to model standard.
+            cfg_trunc_ratio (float): CFG Truncation Ratio (Lumina specific - passed to lumina_gen).
+            guidance_scale (float): Guidance scale (Stable Diffusion specific - passed to sd_gen).
+            num_inference_steps (int): Number of inference steps (Stable Diffusion specific - passed to sd_gen).
 
         Returns:
             Union[str, Image.Image, None]:
-            - If save_image is True and return_image_object is False:
+            - If save_image is True and return_image_object is False (or PIL unavailable):
               Returns the full path (str) to the saved image file.
-            - If return_image_object is True:
-              Returns the PIL Image object. (The image is still saved to disk
-              if save_image is True).
-            - Returns None if any critical step fails (e.g., file not found,
-              model error, dependencies missing).
+            - If return_image_object is True and PIL is available:
+              Returns the PIL Image object. (Image is still saved if save_image is True).
+            - Returns None if any critical step fails.
         """
         if prefixes is None:
-            prefixes = [] # Default to empty list if None is passed
+            prefixes = []
 
-        print(f"\n--- Starting GIFA.pipe ---")
+        print(f"\n--- Starting GIFA.pipe ({image_model_type.upper()})")
         print(f"Processing: {audio_path}")
 
-        # --- Dependency Check ---
-        if not generate_audio_caption or not generate_image or not Image:
-            print("Error: Critical dependency missing (check initialization warnings). Cannot proceed.")
+        # Dependency Check
+        if not generate_audio_caption:
+            print("Error: Audio captioning dependency missing. Cannot proceed.")
             return None
+        if image_model_type == 'lumina' and not LUMINA_AVAILABLE:
+             print(f"Error: Lumina model selected, but it's not available (check lumina_gen). Cannot proceed.")
+             return None
+        if image_model_type == 'sd' and not SD_AVAILABLE:
+             print(f"Error: Stable Diffusion model selected, but it's not available (check sd_gen). Cannot proceed.")
+             return None
+        if return_image_object and not PIL_AVAILABLE:
+            print("Warning: 'return_image_object' is True, but PIL is not available. Will return path instead.")
+            return_image_object = False
 
-        # --- Input Validation ---
+        # Input Validation
         if not os.path.isfile(audio_path):
             print(f"Error: Audio file not found at '{audio_path}'")
             return None
 
-        # --- Step 1: Audio Captioning ---
+        # Step 1: Audio Captioning
         caption: Optional[str] = None
         try:
-            audio_checkpoint_name = model
-            # Construct path to the directory containing the model files
-            if audio_checkpoint_name == "ftwhispertiny":
+            if audio_model == "ftwhispertiny":
                 audio_checkpoint_path = "ac_models/finetuned_models/ftwhispertiny"
-            elif audio_checkpoint_name == "ftcanvers":
+            elif audio_model == "ftcanvers":
                 audio_checkpoint_path = "ac_models/finetuned_models/ftcanvers"
-            print(f"1. Generating caption using '{model}' model (path: {audio_checkpoint_path})...")
+            else:
+                 print(f"Error: Invalid audio_model specified: '{audio_model}'. Use 'ftwhispertiny' or 'ftcanvers'.")
+                 return None
 
-            # Ensure the expected checkpoint path exists (optional but good practice)
+            print(f"1. Generating caption using '{audio_model}' model (path: {audio_checkpoint_path})...")
+
             if not os.path.isdir(audio_checkpoint_path):
-                 print(f"Warning: Audio checkpoint directory not found at '{audio_checkpoint_path}'")
-                 # generate_audio_caption might handle this internally, or fail.
+                print(f"Error: Audio checkpoint directory not found at '{audio_checkpoint_path}'")
+                return None
 
             caption = generate_audio_caption(checkpoint=audio_checkpoint_path, audio_path=audio_path)
 
@@ -178,80 +246,105 @@ class GIFA:
             traceback.print_exc()
             return None
 
-        # --- Step 2: Construct Prompt ---
+        # Step 2: Construct Prompt
         prefix_str = ""
         if prefixes:
             prefix_str = ", ".join(prefixes) + " "
         final_prompt = prefix_str + self.FIXED_PROMPT_PREFIX + caption
         print(f"2. Constructed Prompt: '{final_prompt}'")
 
-        # --- Step 3: Image Generation ---
+        # Step 3: Image Generation
         image_filename: Optional[str] = None
         generated_image_path: Optional[str] = None
+
+        # Set default dimensions based on model if not provided
+        if width is None:
+            width = self.DEFAULT_LUMINA_WIDTH if image_model_type == 'lumina' else self.DEFAULT_SD_WIDTH
+        if height is None:
+            height = self.DEFAULT_LUMINA_HEIGHT if image_model_type == 'lumina' else self.DEFAULT_SD_HEIGHT
+
         try:
-            print(f"3. Generating image ({width}x{height}, seed={seed})...")
-            # Ensure output directory exists if we intend to save
+            print(f"3. Generating image using {image_model_type.upper()} ({width}x{height}, seed={seed})...")
             if save_image:
                 os.makedirs(output_dir, exist_ok=True)
 
-            # generate_image expects the *folder* path where it will save the image
-            image_filename = generate_image(
-                prompt=final_prompt,
-                width=width,
-                height=height,
-                cfg_trunc_ratio=cfg_trunc_ratio,
-                save_folder_path=output_dir, # Pass the directory
-                seed=seed
-            )
+            if image_model_type == 'lumina':
+                if not generate_lumina_image:
+                     raise RuntimeError("Lumina generation function (from lumina_gen) is unavailable.")
+                
+                image_filename = generate_lumina_image(
+                    prompt=final_prompt,
+                    width=width,
+                    height=height,
+                    cfg_trunc_ratio=cfg_trunc_ratio,
+                    save_folder_path=output_dir,
+                    seed=seed
+                )
+            elif image_model_type == 'sd':
+                if not generate_sd_image:
+                    raise RuntimeError("Stable Diffusion generation function (from sd_gen) is unavailable.")
 
-            if image_filename:
+                image_filename = generate_sd_image(
+                    prompt=final_prompt,
+                    width=width,
+                    height=height,
+                    guidance_scale=guidance_scale,
+                    num_inference_steps=num_inference_steps,
+                    save_folder_path=output_dir,
+                    seed=seed
+                )
+            else:
+                print(f"Error: Unsupported image_model_type '{image_model_type}'")
+                return None
+
+            # Process result
+            if image_filename and isinstance(image_filename, str):
                 generated_image_path = os.path.join(output_dir, image_filename)
                 print(f"   Image generated: {generated_image_path}")
             else:
-                print("Error: Image generation function did not return a filename.")
+                print(f"Error: {image_model_type.upper()} generation function did not return a valid filename.")
                 return None # Failed
 
         except Exception as e:
-            print(f"Error during image generation step: {e}")
+            print(f"Error during {image_model_type.upper()} image generation step: {e}")
             traceback.print_exc()
             return None # Failed
 
-        # --- Step 4: Handle Output ---
+        # Step 4: Handle Output
         result: Union[str, 'Image.Image', None] = None
         img_object: Optional['Image.Image'] = None
 
-        if return_image_object:
-            if generated_image_path and os.path.exists(generated_image_path):
-                try:
-                    print(f"4. Loading generated image into PIL object...")
-                    img_object = Image.open(generated_image_path)
-                    img_object.load() # Load data into memory before returning
-                    result = img_object
-                    print(f"   Returning PIL Image object.")
-                except Exception as e:
-                    print(f"Error loading generated image into PIL object: {e}")
-                    # Fallback if loading fails but saving was intended
-                    if save_image:
-                        result = generated_image_path
-                        print(f"   Error loading image, returning path instead: {result}")
-                    else:
-                        result = None # Failed to return object, wasn't saving path
-            else:
-                 print("Error: Cannot return image object - file not found or not generated.")
-                 result = None # Failed
+        if return_image_object and PIL_AVAILABLE and generated_image_path and os.path.exists(generated_image_path):
+            try:
+                print(f"4. Loading generated image into PIL object...")
+                img_object = Image.open(generated_image_path)
+                img_object.load()
+                result = img_object
+                print(f"   Returning PIL Image object.")
+            except Exception as e:
+                print(f"Error loading generated image into PIL object: {e}")
+                if save_image:
+                    result = generated_image_path
+                    print(f"   Error loading image, returning path instead: {result}")
+                else:
+                    result = None
 
-        # If not returning object, or if returning object failed but saving was intended
-        if result is None and save_image and generated_image_path:
+        elif save_image and generated_image_path:
              result = generated_image_path
              print(f"4. Returning saved image path: {result}")
 
-        # If saving was explicitly False and returning object was False or failed
-        if not save_image and not isinstance(result, Image.Image) and generated_image_path and os.path.exists(generated_image_path):
-             try:
-                 print(f"   Cleaning up unsaved file: {generated_image_path}")
-                 os.remove(generated_image_path)
-             except OSError as e:
-                 print(f"   Warning: Could not remove unsaved file {generated_image_path}: {e}")
+        elif not save_image and not return_image_object:
+             print("4. Image generated but neither saved nor returned as object.")
+             result = None
 
-        print(f"--- GIFA.pipe Finished ---")
+
+        # Step 5: Cleanup Unsaved File
+        if not save_image and not isinstance(result, Image.Image) and generated_image_path and os.path.exists(generated_image_path):
+            try:
+                print(f"   Cleaning up unsaved file: {generated_image_path}")
+                os.remove(generated_image_path)
+            except OSError as e:
+                print(f"   Warning: Could not remove unsaved file {generated_image_path}: {e}")
+
+        print(f"--- GIFA.pipe Finished")
         return result
