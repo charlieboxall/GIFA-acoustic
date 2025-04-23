@@ -1,6 +1,7 @@
 ac_models/finetuned_models
 
 dataset/audio
+generated_images
 test_audios
 running_tests.py
 

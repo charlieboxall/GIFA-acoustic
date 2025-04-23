@@ -52,5 +52,5 @@ def main(checkpoint, audio_path):
 
     # Generate and print caption
     caption = generate_caption(model, tokenizer, feature_extractor, audio_path, device)
-    print(caption)
+    #print(caption)
     return caption
