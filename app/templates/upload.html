@@ -156,10 +156,8 @@
                         <label for="model_checkpoint">2. Select Audio Captioning Model:</label>
                         <select name="model_checkpoint" id="model_checkpoint" required>
                              <option value="" disabled {% if not form_data.get('model_checkpoint') %}selected{% endif %}>-- Please choose --</option>
-                             <option value="ac_models/finetuned_models/ftcanvers" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftcanvers' %}selected{% endif %}>Old Canvers</option>
-                             <option value="ac_models/finetuned_models/ftcanvers-PLUS" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftcanvers-PLUS' %}selected{% endif %}>New Canvers</option>
-                             <option value="ac_models/finetuned_models/ftwhispertiny-PLUS" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftwhispertiny-PLUS' %}selected{% endif %}>New WhisperTiny</option>
-                             <option value="ac_models/finetuned_models/ftwhispertiny" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftwhispertiny' %}selected{% endif %}>Old WhisperTiny</option>
+                             <option value="ac_models/finetuned_models/ftcanvers" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftcanvers' %}selected{% endif %}>Finetuned Canvers</option>
+                             <option value="ac_models/finetuned_models/ftwhispertiny" {% if form_data.get('model_checkpoint') == 'ac_models/finetuned_models/ftwhispertiny' %}selected{% endif %}>Finetuned Whisper-tiny</option>
                         </select>
                     </fieldset>
 
@@ -167,7 +165,7 @@
                         <legend>Image Generation Tuning (Guidance Scale Fixed)</legend>
                         <label>3. Image Style Tuning (Optional):</label>
                         <div class="checkbox-group">
-                            {% set styles = ["Abstract", "Cartoon", "Photorealistic", "Oil Painting", "Sketch", "Pixel Art", "Vintage", "Surrealism"] %}
+                            {% set styles = ["Cartoon", "Pixel Art", "Sketch", "Line Art", "Vector Art", "Comic Book Art", "Graphic Novel Art", "Minimalist Poster", "Geometric Design", "Children's Book Illustration", "Concept Art", "Low Poly", "Isometric Art", "Glitch Art", "Vaporwave Aesthetic", "Synthwave Aesthetic", "ASCII Art", "Digital Painting", "Matte Painting", "Watercolour", "Charcoal Sketch", "Chalk Drawing", "Woodcut Print Style", "Engraving Style", "Stained Glass", "Psychedelic Art", "Fantasy Art", "Sci-Fi Art", "Cyberpunk Art", "Steampunk Art", "Grunge Aesthetic", "Art Deco Poster", "Art Nouveau Poster"] %}
                             {% for style in styles %}
                             <label for="style_{{ style|lower|replace(' ', '_') }}">
                                 <input type="checkbox" id="style_{{ style|lower|replace(' ', '_') }}" name="style_tuning" value="{{ style }}"
