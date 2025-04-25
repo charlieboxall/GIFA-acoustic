@@ -1,4 +1,4 @@
-# image_generator.py
+
 import os
 import uuid
 import traceback
@@ -7,7 +7,7 @@ import torch
 from diffusers import Lumina2Pipeline
 from PIL import Image
 
-# --- Global Model Loading ---
+#  Global Model Loading 
 lumina_pipe = None
 
 def get_lumina_pipeline():
@@ -25,33 +25,45 @@ def get_lumina_pipeline():
         except Exception as e:
             print(f"ERROR loading Lumina-2 model: {e}")
             traceback.print_exc()
-            # Return None if loading fails, allowing the calling function to handle it
             return None
     return lumina_pipe
 
-def generate_image(prompt, width, height, cfg_trunc_ratio, save_folder_path, seed=0):
+def generate_image(prompt: str,
+                   width: int,
+                   height: int,
+                   save_folder_path: str,
+                   seed: int = 0,
+                   **pipeline_kwargs):
     """
-    Generates an image based on the prompt using the Lumina-2 model.
+    Generates an image based on the prompt using the Lumina-2 model,
+    allowing pass-through of additional pipeline arguments.
 
     Args:
         prompt (str): The text prompt for image generation.
         width (int): The desired width of the image.
         height (int): The desired height of the image.
-        cfg_trunc_ratio (float): Configuration truncation ratio for the model.
         save_folder_path (str): The absolute path to the folder where the image should be saved.
         seed (int, optional): Random seed for generation. Defaults to 0.
+        **pipeline_kwargs: Additional keyword arguments to pass directly to the
+                           Lumina2Pipeline call (e.g., guidance_scale,
+                           num_inference_steps, cfg_trunc_ratio, cfg_normalization).
 
     Returns:
         str: The filename of the generated image if successful, otherwise None.
     """
-    print(f"Generating image with prompt: '{prompt}'")
-    print(f"Parameters: Width={width}, Height={height}, CFG Trunc Ratio={cfg_trunc_ratio:.2f}, Seed={seed}")
+    # Log received parameters, including extra ones
+    print(f"Generating Lumina image with prompt: '{prompt}'")
+    print(f"Base Params: Width={width}, Height={height}, Seed={seed}")
+    if pipeline_kwargs:
+        print(f"Additional Pipeline Params: {pipeline_kwargs}")
+    else:
+        print("Additional Pipeline Params: None")
+
     try:
         pipe = get_lumina_pipeline()
         if pipe is None:
-            # Handle model load failure gracefully during generation attempt
             print("ERROR: Lumina pipeline not available for image generation.")
-            return None # Return None if pipeline failed to load earlier
+            return None
 
         generator = torch.Generator("cuda").manual_seed(seed)
 
@@ -60,11 +72,8 @@ def generate_image(prompt, width, height, cfg_trunc_ratio, save_folder_path, see
                 prompt=prompt,
                 height=int(height),
                 width=int(width),
-                guidance_scale=4.0,
-                num_inference_steps=25,
-                cfg_trunc_ratio=float(cfg_trunc_ratio),
-                cfg_normalization=True,
-                generator=generator
+                generator=generator,
+                **pipeline_kwargs
             ).images[0]
 
         if image.mode != 'RGB':
@@ -75,16 +84,14 @@ def generate_image(prompt, width, height, cfg_trunc_ratio, save_folder_path, see
         filename = f"img_{timestamp}_{unique_id}.png"
         save_path = os.path.join(save_folder_path, filename)
 
-        # Ensure the save directory exists (it should from run.py, but double-check)
         os.makedirs(save_folder_path, exist_ok=True)
-
         image.save(save_path)
         print(f"Image saved to: {save_path}")
         return filename
 
     except Exception as e:
         print(f"ERROR during image generation: {e}")
-        print("--- Image Generation Traceback ---")
+        print(" Image Generation Traceback ")
         traceback.print_exc()
-        print("--- End Image Generation Traceback ---")
+        print(" End Image Generation Traceback ")
         return None
